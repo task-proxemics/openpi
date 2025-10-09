@@ -1,0 +1,20 @@
+# JAX container for Ubuntu 24.04 + CUDA 13 (multi-arch; works on Thor)
+FROM nvcr.io/nvidia/jax:25.08-py3
+
+ENV NVIDIA_VISIBLE_DEVICES=all \
+    NVIDIA_DRIVER_CAPABILITIES=all \
+    JAX_PLATFORMS=cuda \
+    PYTHONUNBUFFERED=1
+
+# Do NOT force LD_LIBRARY_PATH here; JAX recommends not overriding it when using pip wheels.
+# https://docs.jax.dev/en/latest/installation.html
+
+# Minimal OS deps you’ll likely want inside the image
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      git build-essential cmake ninja-build pkg-config libgl1 libglib2.0-0 ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Keep Python tooling current
+RUN python -m pip install --upgrade --no-cache-dir 'pip<25' setuptools wheel
+
+WORKDIR /workspace
