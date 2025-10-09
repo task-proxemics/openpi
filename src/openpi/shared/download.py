@@ -100,7 +100,7 @@ def maybe_download(url: str, *, force_download: bool = False, **kwargs) -> pathl
 
 def _download_fsspec(url: str, local_path: pathlib.Path, **kwargs) -> None:
     """Download a file from a remote filesystem to the local cache, and return the local path."""
-    fs, _ = fsspec.core.url_to_fs(url, **kwargs)
+    fs, _ = fsspec.core.url_to_fs(url, gs={"token": "anon"}, **kwargs)
     info = fs.info(url)
     # Folders are represented by 0-byte objects with a trailing forward slash.
     if is_dir := (info["type"] == "directory" or (info["size"] == 0 and info["name"].endswith("/"))):

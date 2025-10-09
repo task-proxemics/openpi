@@ -15,21 +15,28 @@ import jax.numpy as jnp
 import numpy as np
 import orbax.checkpoint as ocp
 import safetensors
-import torch
 
-from openpi.models_pytorch import pi0_pytorch
 from openpi.shared import image_tools
 import openpi.shared.array_typing as at
 
+# Optional torch typing support without hard dependency
+try:
+    import torch as _torch  # type: ignore
+    _TorchTensor = _torch.Tensor
+    _TORCH_UINT8 = _torch.uint8
+except Exception:
+    class _TorchTensor:  # runtime stub for typing
+        ...
+    _TORCH_UINT8 = None  # sentinel for absence
+
 logger = logging.getLogger("openpi")
 
-# Type variable for array types (JAX arrays, PyTorch tensors, or numpy arrays)
-ArrayT = TypeVar("ArrayT", bound=jax.Array | torch.Tensor | np.ndarray)
+# Allow arrays to be JAX arrays, NumPy arrays, or (optionally) Torch tensors at runtime
+ArrayT = TypeVar("ArrayT", bound=jax.Array | np.ndarray | _TorchTensor)  # type: ignore[type-arg]
 
 
 class ModelType(enum.Enum):
     """Supported model types."""
-
     PI0 = "pi0"
     PI0_FAST = "pi0_fast"
     PI05 = "pi05"
@@ -42,7 +49,6 @@ IMAGE_KEYS = (
     "right_wrist_0_rgb",
 )
 
-
 # This may need change if we release a small model.
 IMAGE_RESOLUTION = (224, 224)
 
@@ -50,9 +56,9 @@ IMAGE_RESOLUTION = (224, 224)
 # Data format
 #
 # Data transforms produce the model input as a nested dictionary which is later converted
-# into `Obesrvation` and `Actions` objects. See below.
+# into `Observation` and `Actions` objects. See below.
 #
-# In the dictory form, this data should look like:
+# In the dictionary form, this data should look like:
 # {
 #     # Observation data.
 #     "image": {
@@ -100,24 +106,27 @@ class Observation(Generic[ArrayT]):
     tokenized_prompt_mask: at.Bool[ArrayT, "*b l"] | None = None
 
     # pi0-fast model specific fields.
-
-    # Token auto-regressive mask (for FAST autoregressive model).
     token_ar_mask: at.Int[ArrayT, "*b l"] | None = None
-    # Token loss mask (for FAST autoregressive model).
     token_loss_mask: at.Bool[ArrayT, "*b l"] | None = None
 
     @classmethod
     def from_dict(cls, data: at.PyTree[ArrayT]) -> "Observation[ArrayT]":
-        """This method defines the mapping between unstructured data (i.e., nested dict) to the structured Observation format."""
+        """Map a nested dict to the structured Observation format."""
         # Ensure that tokenized_prompt and tokenized_prompt_mask are provided together.
         if ("tokenized_prompt" in data) != ("tokenized_prompt_mask" in data):
             raise ValueError("tokenized_prompt and tokenized_prompt_mask must be provided together.")
+
         # If images are uint8, convert them to [-1, 1] float32.
         for key in data["image"]:
-            if data["image"][key].dtype == np.uint8:
-                data["image"][key] = data["image"][key].astype(np.float32) / 255.0 * 2.0 - 1.0
-            elif hasattr(data["image"][key], "dtype") and data["image"][key].dtype == torch.uint8:
-                data["image"][key] = data["image"][key].to(torch.float32).permute(0, 3, 1, 2) / 255.0 * 2.0 - 1.0
+            img = data["image"][key]
+            # NumPy path
+            if isinstance(img, np.ndarray) and img.dtype == np.uint8:
+                data["image"][key] = img.astype(np.float32) / 255.0 * 2.0 - 1.0
+            # Torch path (only if torch exists and dtype matches)
+            elif _TORCH_UINT8 is not None and hasattr(img, "dtype") and img.dtype == _TORCH_UINT8:  # type: ignore[truthy-bool]
+                # keep behavior consistent with the original code
+                data["image"][key] = img.to(dtype=getattr(img, "dtype").__class__.torch.float32).permute(0, 3, 1, 2) / 255.0 * 2.0 - 1.0
+
         return cls(
             images=data["image"],
             image_masks=data["image_mask"],
@@ -180,7 +189,7 @@ def preprocess_observation(
             transforms += [
                 augmax.ColorJitter(brightness=0.3, contrast=0.4, saturation=0.5),
             ]
-            sub_rngs = jax.random.split(rng, image.shape[0])
+            sub_rngs = jax.random.split(rng, image.shape[0]) if rng is not None else jnp.array([0], dtype=jnp.uint32).reshape(1, 1)
             image = jax.vmap(augmax.Chain(*transforms))(sub_rngs, image)
 
             # Back to [-1, 1].
@@ -193,7 +202,7 @@ def preprocess_observation(
     for key in out_images:
         if key not in observation.image_masks:
             # do not mask by default
-            out_masks[key] = jnp.ones(batch_shape, dtype=jnp.bool)
+            out_masks[key] = jnp.ones(batch_shape, dtype=jnp.bool_)
         else:
             out_masks[key] = jnp.asarray(observation.image_masks[key])
 
@@ -241,9 +250,17 @@ class BaseModelConfig(abc.ABC):
         return nnx.merge(graphdef, state)
 
     def load_pytorch(self, train_config, weight_path: str):
-        logger.info(f"train_config: {train_config}")
+        """Load a PyTorch model from a safetensors checkpoint (lazy, optional)."""
+        try:
+            import torch  # noqa: F401
+            from openpi.models_pytorch import pi0_pytorch
+            import safetensors.torch as st
+        except Exception as e:  # pragma: no cover
+            raise ImportError("PyTorch stack not available; cannot load PyTorch checkpoint") from e
+
+        logger.info("Loading PyTorch weights from %s", weight_path)
         model = pi0_pytorch.PI0Pytorch(config=train_config.model)
-        safetensors.torch.load_model(model, weight_path)
+        st.load_model(model, weight_path)
         return model
 
     @abc.abstractmethod

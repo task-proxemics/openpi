@@ -20,8 +20,16 @@ from jaxtyping import UInt8  # noqa: F401
 from jaxtyping import config
 from jaxtyping import jaxtyped
 import jaxtyping._decorator
-import torch
-
+# Optional Torch: safe stub when not installed
+try:
+    import torch
+except Exception:
+    class _TorchStub:
+        class Tensor: ...
+        uint8 = None
+        def __getattr__(self, name):  # torch.cuda, etc.
+            raise RuntimeError("PyTorch not installed; JAX-only path")
+    torch = _TorchStub()
 # patch jaxtyping to handle https://github.com/patrick-kidger/jaxtyping/issues/277.
 # the problem is that custom PyTree nodes are sometimes initialized with arbitrary types (e.g., `jax.ShapeDtypeStruct`,
 # `jax.Sharding`, or even <object>) due to JAX tracing operations. this patch skips typechecking when the stack trace

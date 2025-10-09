@@ -13,7 +13,9 @@ import orbax.checkpoint.future as future
 
 from openpi.shared import array_typing as at
 import openpi.shared.normalize as _normalize
-import openpi.training.data_loader as _data_loader
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    import openpi.training.data_loader as _data_loader  # type: ignore
 import openpi.training.utils as training_utils
 
 
