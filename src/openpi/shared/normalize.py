@@ -1,5 +1,5 @@
-import os
 from dataclasses import dataclass as _py_dataclass
+import os
 from typing import TYPE_CHECKING
 
 # Pydantic optional at runtime to avoid schema generation crashes with numpydantic on Py3.12.
@@ -10,15 +10,18 @@ except Exception:
 
 # Use plain dataclass by default. Set OPENPI_USE_PYDANTIC=1 to re-enable pydantic.dataclasses.dataclass
 Dataclass = (
-    pydantic.dataclasses.dataclass if (pydantic is not None and os.environ.get("OPENPI_USE_PYDANTIC","0") == "1")
+    pydantic.dataclasses.dataclass
+    if (pydantic is not None and os.environ.get("OPENPI_USE_PYDANTIC", "0") == "1")
     else _py_dataclass
 )
+
 
 # Provide a lightweight drop-in for pydantic.BaseModel used in this file.
 class _BaseModelMixin:
     def __init__(self, **data):
         for k, v in data.items():
             setattr(self, k, v)
+
     @classmethod
     def model_validate(cls, v):
         if isinstance(v, cls):
@@ -27,12 +30,14 @@ class _BaseModelMixin:
             return cls(**v)
         # last resort: try to coerce mapping-like
         return cls(**dict(v))
+
     def model_dump(self):
         # Prefer annotated fields if present; else dump __dict__
-        ann = getattr(self, '__annotations__', {})
+        ann = getattr(self, "__annotations__", {})
         if ann:
             return {k: getattr(self, k) for k in ann.keys() if hasattr(self, k)}
         return dict(self.__dict__)
+
 
 # Make numpydantic NDArray type-only to avoid runtime schema work.
 if TYPE_CHECKING:
@@ -42,9 +47,13 @@ else:
         # fall back to numpy.typing for runtime (typing only)
         from numpy.typing import NDArray  # type: ignore
     except Exception:
+
         class NDArray:  # type: ignore
             pass
+
+
 import os
+
 try:
     import pydantic  # type: ignore
 except Exception:
@@ -54,7 +63,8 @@ from dataclasses import dataclass as _py_dataclass
 # Use plain dataclass by default to avoid runtime schema generation.
 # Set OPENPI_USE_PYDANTIC=1 to re-enable pydantic dataclasses.
 Dataclass = (
-    pydantic.dataclasses.dataclass if (pydantic is not None and os.environ.get('OPENPI_USE_PYDANTIC','0')=='1')
+    pydantic.dataclasses.dataclass
+    if (pydantic is not None and os.environ.get("OPENPI_USE_PYDANTIC", "0") == "1")
     else _py_dataclass
 )
 

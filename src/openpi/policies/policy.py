@@ -99,6 +99,7 @@ class Policy(BasePolicy):
 
 class PolicyRecorder(_base_policy.BasePolicy):
     """Records the policy's behavior to disk."""
+
     def __init__(self, policy: _base_policy.BasePolicy, record_dir: str):
         self._policy = policy
         logging.info(f"Dumping policy records to: {record_dir}")

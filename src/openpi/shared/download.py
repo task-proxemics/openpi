@@ -192,3 +192,40 @@ def _should_invalidate_cache(cache_dir: pathlib.Path, local_path: pathlib.Path) 
             return local_path.stat().st_mtime <= expire_time
 
     return False
+
+
+# ---- ROBUST_URL_TO_FS_PATCH: normalize storage options & avoid duplicate 'gs' kw ----
+def _download_fsspec(url, dest, **kwargs):
+    """Download from URL using fsspec, supporting both files and directories.
+
+    Accepts either protocol-specific storage options via `gs={...}` or direct
+    keyword storage options (e.g., token="anon"). Avoids passing duplicate
+    keyword args to fsspec.core.url_to_fs.
+    """
+    import pathlib
+    import fsspec
+
+    # Normalize storage options
+    storage_opts: dict = {}
+    if "gs" in kwargs:
+        v = kwargs.pop("gs") or {}
+        if not isinstance(v, dict):
+            raise TypeError("gs storage options must be a dict")
+        storage_opts.update(v)
+
+    # Also accept direct storage options (e.g., token='anon')
+    storage_opts.update(kwargs)
+
+    # Default to anonymous token for public GCS unless caller overrode it
+    if url.startswith("gs://") and "token" not in storage_opts:
+        storage_opts["token"] = "anon"
+
+    fs, path = fsspec.core.url_to_fs(url, **storage_opts)
+
+    dest_path = pathlib.Path(dest)
+    if fs.isdir(path):
+        dest_path.mkdir(parents=True, exist_ok=True)
+        fs.get(path, str(dest_path), recursive=True)
+    else:
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        fs.get(path, str(dest_path))

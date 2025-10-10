@@ -4,7 +4,7 @@ import asyncio
 import concurrent.futures as futures
 import dataclasses
 import logging
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from etils import epath
 import jax
@@ -13,7 +13,7 @@ import orbax.checkpoint.future as future
 
 from openpi.shared import array_typing as at
 import openpi.shared.normalize as _normalize
-from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
     import openpi.training.data_loader as _data_loader  # type: ignore
 import openpi.training.utils as training_utils

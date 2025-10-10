@@ -6,7 +6,37 @@ from typing import Protocol, TypeAlias, TypeVar, runtime_checkable
 import flax.traverse_util as traverse_util
 import jax
 import numpy as np
-from openpi_client import image_tools
+from openpi.shared import image_tools
+
+# ---- ROBUST_QUANTILE_COERCION_PATCH ----
+import numpy as _np
+
+class _Quantiles:
+    __slots__ = ("q01","q99")
+    def __init__(self, q01, q99):
+        self.q01 = _np.asarray(q01)
+        self.q99 = _np.asarray(q99)
+
+def _as_quantiles(v):
+    # Already an object with attributes?
+    if hasattr(v, "q01") and hasattr(v, "q99"):
+        return _Quantiles(getattr(v, "q01"), getattr(v, "q99"))
+    # Dict with needed keys?
+    if isinstance(v, dict):
+        # If this dict holds q01/q99 directly, wrap; else descend.
+        if "q01" in v and "q99" in v:
+            return _Quantiles(v["q01"], v["q99"])
+        return {k: _as_quantiles(vv) for k, vv in v.items()}
+    # Two-tuple/list form (q01, q99)
+    if isinstance(v, (list, tuple)) and len(v) == 2:
+        return _Quantiles(v[0], v[1])
+    # Leave other types alone
+    return v
+
+def _coerce_quantile_norm_stats(stats):
+    # Recurse through the tree and wrap any quantile pairs (dict/list/tuple)
+    return _as_quantiles(stats)
+# ---- END ROBUST_QUANTILE_COERCION_PATCH ----
 
 from openpi.models import tokenizer as _tokenizer
 from openpi.shared import array_typing as at
@@ -121,6 +151,7 @@ class Normalize(DataTransformFn):
 
     def __post_init__(self):
         if self.norm_stats is not None and self.use_quantiles:
+            object.__setattr__(self, 'norm_stats', _coerce_quantile_norm_stats(self.norm_stats))
             _assert_quantile_stats(self.norm_stats)
 
     def __call__(self, data: DataDict) -> DataDict:
@@ -153,6 +184,7 @@ class Unnormalize(DataTransformFn):
 
     def __post_init__(self):
         if self.norm_stats is not None and self.use_quantiles:
+            object.__setattr__(self, 'norm_stats', _coerce_quantile_norm_stats(self.norm_stats))
             _assert_quantile_stats(self.norm_stats)
 
     def __call__(self, data: DataDict) -> DataDict:
@@ -453,6 +485,7 @@ def make_bool_mask(*dims: int) -> tuple[bool, ...]:
 
 
 def _assert_quantile_stats(norm_stats: at.PyTree[NormStats]) -> None:
+    norm_stats = _coerce_quantile_norm_stats(norm_stats)
     for k, v in flatten_dict(norm_stats).items():
         if v.q01 is None or v.q99 is None:
             raise ValueError(

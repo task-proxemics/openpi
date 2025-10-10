@@ -49,8 +49,10 @@ def create_trained_policy(
     weight_path = os.path.join(checkpoint_dir, "model.safetensors")
     is_pytorch = os.path.exists(weight_path)
     backend = os.environ.get("OPENPI_FORCE_BACKEND")
-    if backend == "jax": is_pytorch = False
-    elif backend == "torch": is_pytorch = True
+    if backend == "jax":
+        is_pytorch = False
+    elif backend == "torch":
+        is_pytorch = True
     # Allow override via env var (force JAX on Jetson)
     backend = os.environ.get("OPENPI_FORCE_BACKEND")
     if backend == "jax":

@@ -172,3 +172,6 @@ cython_debug/
 
 # editor backups
 *.bak
+
+# editor backups
+*.bak
