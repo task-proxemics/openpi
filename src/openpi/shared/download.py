@@ -203,6 +203,7 @@ def _download_fsspec(url, dest, **kwargs):
     keyword args to fsspec.core.url_to_fs.
     """
     import pathlib
+
     import fsspec
 
     # Normalize storage options
