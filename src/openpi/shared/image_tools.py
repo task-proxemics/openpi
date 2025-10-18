@@ -2,8 +2,26 @@ import functools
 
 import jax
 import jax.numpy as jnp
-import torch
-import torch.nn.functional as F  # noqa: N812
+
+# Optional Torch: safe stub when not installed
+try:
+    import torch
+except Exception:
+
+    class _TorchStub:
+        class Tensor: ...
+
+        uint8 = None
+
+        def __getattr__(self, name):  # torch.cuda, etc.
+            raise RuntimeError("PyTorch not installed; JAX-only path")
+
+    torch = _TorchStub()
+# Optional: torch.nn.functional as F
+try:
+    import torch.nn.functional as F
+except Exception:
+    F = None
 
 import openpi.shared.array_typing as at
 
