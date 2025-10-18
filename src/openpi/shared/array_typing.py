@@ -20,6 +20,7 @@ from jaxtyping import UInt8  # noqa: F401
 from jaxtyping import config
 from jaxtyping import jaxtyped
 import jaxtyping._decorator
+import torch
 
 # Optional Torch: safe stub when not installed
 try:
