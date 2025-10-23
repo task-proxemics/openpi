@@ -1,0 +1,51 @@
+version: "3.8"
+
+services:
+  so101-openpi:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: so101-openpi
+    volumes:
+      - .:/workspace
+      - /dev:/dev # Device access for cameras and robot
+    devices:
+      - /dev/ttyACM0:/dev/ttyACM0 # SO-101 robot connection
+      - /dev/video0:/dev/video0 # Wrist camera
+      - /dev/video1:/dev/video1 # External camera
+    privileged: true # Required for USB device access
+    network_mode: host
+    environment:
+      - DISPLAY=${DISPLAY}
+      - PYTHONPATH=/workspace
+    command: python3 main.py --checkpoint_dir /workspace/checkpoints/pi05_so101
+
+  so101-hardware:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: so101-hardware
+    volumes:
+      - .:/workspace
+      - /dev:/dev
+    devices:
+      - /dev/ttyACM0:/dev/ttyACM0
+      - /dev/video0:/dev/video0
+      - /dev/video1:/dev/video1
+    privileged: true
+    network_mode: host
+    environment:
+      - DISPLAY=${DISPLAY}
+      - PYTHONPATH=/workspace
+    command: python3 hardware_bridge.py --checkpoint_dir /workspace/checkpoints/pi05_so101
+
+  so101-simulation:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: so101-simulation
+    volumes:
+      - .:/workspace
+    environment:
+      - PYTHONPATH=/workspace
+    command: python3 main.py --checkpoint_dir /workspace/checkpoints/pi05_so101 --num_steps 10

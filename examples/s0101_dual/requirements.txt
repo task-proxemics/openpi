@@ -1,0 +1,27 @@
+# Dual SO-101 + OpenPI π₀.₅ Requirements
+
+# Core dependencies
+numpy>=1.24.0
+opencv-python>=4.8.0
+
+# Scientific computing
+scipy>=1.10.0
+
+# Deep learning
+torch>=2.0.0
+jax>=0.4.0
+flax>=0.8.0
+
+# Utilities
+tyro>=0.5.0
+rich>=13.0.0
+tqdm>=4.65.0
+
+# Hardware communication
+pyserial>=3.5
+
+# LeRobot with Feetech support
+# lerobot[feetech] @ git+https://github.com/huggingface/lerobot.git
+
+# OpenPI
+# openpi @ git+https://github.com/physical-intelligence/openpi.git
