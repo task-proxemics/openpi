@@ -20,6 +20,9 @@ import openpi.models.tokenizer as _tokenizer
 import openpi.policies.aloha_policy as aloha_policy
 import openpi.policies.droid_policy as droid_policy
 import openpi.policies.libero_policy as libero_policy
+import openpi.policies.s0101_single_policy as s0101_single_policy
+import openpi.policies.s0101_dual_policy as s0101_dual_policy
+import openpi.policies.s0101_dual_omni_policy as s0101_dual_omni_policy
 import openpi.shared.download as _download
 import openpi.shared.normalize as _normalize
 import openpi.training.droid_rlds_dataset as droid_rlds_dataset
@@ -84,7 +87,7 @@ class DataConfig:
     # Names of keys that will be used by the data loader to generate the action sequence. The length of the
     # sequence is defined by the `action_horizon` field in the model config. This should be adjusted if your
     # LeRobot dataset is using different keys to represent the action.
-    action_sequence_keys: Sequence[str] = ("actions",)
+    action_sequence_keys: Sequence[str] = ("action",)
 
     # If true, will use the LeRobot dataset task to define the prompt.
     prompt_from_task: bool = False
@@ -272,6 +275,256 @@ class LeRobotAlohaDataConfig(DataConfigFactory):
             self.create_base_config(assets_dirs, model_config),
             repack_transforms=self.repack_transforms,
             data_transforms=data_transforms,
+            model_transforms=model_transforms,
+            action_sequence_keys=self.action_sequence_keys,
+        )
+
+
+@dataclasses.dataclass(frozen=True)
+class LeRobotS0101SingleDataConfig(DataConfigFactory):
+    """
+    Data config for single SO-101 robot with LeRobot dataset format.
+    Handles dual camera setup (wrist + RealSense RGB only) and 6-DOF joint actions.
+    """
+    
+    # If provided, will be injected into the input data if the "prompt" key is not present.
+    default_prompt: str | None = None
+    # Whether to use delta actions (relative to current position) vs absolute actions
+    use_delta_actions: bool = False
+    
+    # Repack transforms - map dataset keys to expected policy keys
+    repack_transforms: tyro.conf.Suppress[_transforms.Group] = dataclasses.field(
+        default=_transforms.Group(
+            inputs=[
+                _transforms.RepackTransform(
+                    {
+                        "images": {
+                            "realsense": "observation.images.realsense",
+                            "wrist2": "observation.images.wrist2",
+                        },
+                        "state": "observation.state", 
+                        "actions": "action",
+                    }
+                )
+            ]
+        )
+    )
+    # Action keys that will be used to read the action sequence from the dataset.
+    action_sequence_keys: Sequence[str] = ("action",)
+    
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        # Data transforms: convert dataset format to policy input/output format
+        data_transforms = _transforms.Group(
+            inputs=[s0101_single_policy.S0101SingleInputs(model_type=_model.ModelType.PI05)],
+            outputs=[s0101_single_policy.S0101SingleOutputs()],
+        )
+        
+        # Optional delta action transforms (relative vs absolute actions)
+        if self.use_delta_actions:
+            # Create mask for all 6 SO-101 joints (shoulder_pan, shoulder_lift, elbow_flex, wrist_flex, wrist_roll, gripper)
+            delta_action_mask = _transforms.make_bool_mask(6, -1, 6, -1) 
+            data_transforms = data_transforms.push(
+                inputs=[_transforms.DeltaActions(delta_action_mask)],
+                outputs=[_transforms.AbsoluteActions(delta_action_mask)],
+            )
+        
+        # Model transforms (handles prompts, etc.)
+        model_transforms = ModelTransformFactory(default_prompt=self.default_prompt)(model_config)
+        
+        return dataclasses.replace(
+            self.create_base_config(assets_dirs, model_config),
+            repack_transforms=self.repack_transforms,
+            data_transforms=data_transforms, 
+            model_transforms=model_transforms,
+            action_sequence_keys=self.action_sequence_keys,
+        )
+
+
+@dataclasses.dataclass(frozen=True)
+class LeRobotS0101DualDataConfig(DataConfigFactory):
+    """
+    Data config for dual SO-101 robots with LeRobot dataset format.
+    Handles triple camera setup (2 wrist + RealSense RGB only) and 12-DOF joint actions.
+    """
+    
+    # If provided, will be injected into the input data if the "prompt" key is not present.
+    default_prompt: str | None = None
+    # Whether to use delta actions (relative to current position) vs absolute actions
+    use_delta_actions: bool = False
+    
+    # Repack transforms - map dataset keys to expected policy keys
+    repack_transforms: tyro.conf.Suppress[_transforms.Group] = dataclasses.field(
+        default=_transforms.Group(
+            inputs=[
+                _transforms.RepackTransform(
+                    {
+                        "images": {
+                            "realsense": "observation.images.realsense",
+                            "left_wrist": "observation.images.left_wrist",
+                            "right_wrist": "observation.images.right_wrist",
+                        },
+                        "state": "observation.state", 
+                        "actions": "action",
+                    }
+                )
+            ]
+        )
+    )
+    # Action keys that will be used to read the action sequence from the dataset.
+    action_sequence_keys: Sequence[str] = ("action",)
+    
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        # Data transforms: convert dataset format to policy input/output format
+        data_transforms = _transforms.Group(
+            inputs=[s0101_dual_policy.S0101DualInputs(model_type=_model.ModelType.PI05)],
+            outputs=[s0101_dual_policy.S0101DualOutputs()],
+        )
+        
+        # Optional delta action transforms (relative vs absolute actions)
+        if self.use_delta_actions:
+            # Create mask for all 12 dual SO-101 joints
+            delta_action_mask = _transforms.make_bool_mask(12, -1, 12, -1) 
+            data_transforms = data_transforms.push(
+                inputs=[_transforms.DeltaActions(delta_action_mask)],
+                outputs=[_transforms.AbsoluteActions(delta_action_mask)],
+            )
+        
+        # Model transforms (handles prompts, etc.)
+        model_transforms = ModelTransformFactory(default_prompt=self.default_prompt)(model_config)
+        
+        return dataclasses.replace(
+            self.create_base_config(assets_dirs, model_config),
+            repack_transforms=self.repack_transforms,
+            data_transforms=data_transforms, 
+            model_transforms=model_transforms,
+            action_sequence_keys=self.action_sequence_keys,
+        )
+
+
+@dataclasses.dataclass(frozen=True)
+class LeRobotS0101DualOmniDataConfig(DataConfigFactory):
+    """
+    Data config for dual SO-101 robots + Omni base with LeRobot dataset format.
+    Handles triple camera setup (2 wrist + RealSense RGB only) and 15-DOF actions (12 arms + 3 base).
+    """
+    
+    # If provided, will be injected into the input data if the "prompt" key is not present.
+    default_prompt: str | None = None
+    # Whether to use delta actions (relative to current position) vs absolute actions
+    use_delta_actions: bool = False
+    
+    # Repack transforms - map dataset keys to expected policy keys
+    repack_transforms: tyro.conf.Suppress[_transforms.Group] = dataclasses.field(
+        default=_transforms.Group(
+            inputs=[
+                _transforms.RepackTransform(
+                    {
+                        "images": {
+                            "realsense": "observation.images.realsense",
+                            "left_wrist": "observation.images.left_wrist",
+                            "right_wrist": "observation.images.right_wrist",
+                        },
+                        "state": "observation.state", 
+                        "actions": "action",
+                    }
+                )
+            ]
+        )
+    )
+    # Action keys that will be used to read the action sequence from the dataset.
+    action_sequence_keys: Sequence[str] = ("action",)
+    
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        # Data transforms: convert dataset format to policy input/output format
+        data_transforms = _transforms.Group(
+            inputs=[s0101_dual_omni_policy.S0101DualOmniInputs(model_type=_model.ModelType.PI05)],
+            outputs=[s0101_dual_omni_policy.S0101DualOmniOutputs()],
+        )
+        
+        # Optional delta action transforms (relative vs absolute actions)
+        if self.use_delta_actions:
+            # Create mask for all 15 dual SO-101 + omni actions
+            delta_action_mask = _transforms.make_bool_mask(15, -1, 15, -1) 
+            data_transforms = data_transforms.push(
+                inputs=[_transforms.DeltaActions(delta_action_mask)],
+                outputs=[_transforms.AbsoluteActions(delta_action_mask)],
+            )
+        
+        # Model transforms (handles prompts, etc.)
+        model_transforms = ModelTransformFactory(default_prompt=self.default_prompt)(model_config)
+        
+        return dataclasses.replace(
+            self.create_base_config(assets_dirs, model_config),
+            repack_transforms=self.repack_transforms,
+            data_transforms=data_transforms, 
+            model_transforms=model_transforms,
+            action_sequence_keys=self.action_sequence_keys,
+        )
+
+
+@dataclasses.dataclass(frozen=True)
+class LeRobotS0101RightArmTapePickupDataConfig(DataConfigFactory):
+    """
+    Data config for S0101 RIGHT ARM tape pickup task with LeRobot dataset format.
+    Handles dual camera setup (wrist1 + RealSense RGB) and 6-DOF joint actions.
+    Specifically designed for right arm tape pickup tasks.
+    """
+    
+    # The LeRobot repo id.
+    repo_id: str = tyro.MISSING
+    # If provided, will be injected into the input data if the "prompt" key is not present.
+    default_prompt: str | None = None
+    # Whether to use delta actions (relative to current position) vs absolute actions
+    use_delta_actions: bool = False
+    
+    # Repack transforms - map dataset keys to expected policy keys
+    repack_transforms: tyro.conf.Suppress[_transforms.Group] = dataclasses.field(
+        default=_transforms.Group(
+            inputs=[
+                _transforms.RepackTransform(
+                    {
+                        "images": {
+                            "realsense": "observation.images.realsense",
+                            "wrist1": "observation.images.wrist1",  # Direct mapping - no conversion needed
+                        },
+                        "state": "observation.state", 
+                        "actions": "action",
+                    }
+                )
+            ]
+        )
+    )
+    # Action keys that will be used to read the action sequence from the dataset.
+    action_sequence_keys: Sequence[str] = ("action",)
+    
+    @override
+    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+        # Data transforms: convert dataset format to policy input/output format
+        data_transforms = _transforms.Group(
+            inputs=[s0101_single_policy.S0101SingleInputs(model_type=_model.ModelType.PI05)],
+            outputs=[s0101_single_policy.S0101SingleOutputs()],
+        )
+        
+        # Optional delta action transforms (relative vs absolute actions)
+        if self.use_delta_actions:
+            # Create mask for all 6 SO-101 joints (shoulder_pan, shoulder_lift, elbow_flex, wrist_flex, wrist_roll, gripper)
+            delta_action_mask = _transforms.make_bool_mask(6, -1, 6, -1) 
+            data_transforms = data_transforms.push(
+                inputs=[_transforms.DeltaActions(delta_action_mask)],
+                outputs=[_transforms.AbsoluteActions(delta_action_mask)],
+            )
+        
+        # Model transforms (handles prompts, etc.)
+        model_transforms = ModelTransformFactory(default_prompt=self.default_prompt)(model_config)
+
+        base_config = self.create_base_config(assets_dirs, model_config)
+        return dataclasses.replace(
+            base_config,
+            repack_transforms=self.repack_transforms,
+            data_transforms=data_transforms, 
             model_transforms=model_transforms,
             action_sequence_keys=self.action_sequence_keys,
         )
@@ -585,6 +838,189 @@ _CONFIGS = [
             default_prompt="open the tupperware and put the food on the plate",
         ),
         policy_metadata={"reset_pose": [0, -1.5, 1.5, 0, 0, 0]},
+    ),
+    #
+    # S0101 Single Arm configs.
+    #
+    TrainConfig(
+        name="pi05_s0101_single",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_dim=6,  # Single S0101 has 6 DOF
+            action_horizon=50,
+        ),
+        data=LeRobotS0101SingleDataConfig(
+            repo_id="/home/shadeform/workspace/data/S0101_Test_Format_finetuning_samples/test_format_with_calibration_3_converted",
+            assets=AssetsConfig(asset_id="s0101_single"),
+            base_config=DataConfig(
+                prompt_from_task=True,
+            ),
+        ),
+        policy_metadata={"reset_pose": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]},  # S0101 neutral pose
+    ),
+    TrainConfig(
+        # Fine-tuning config for single S0101 robot using LeRobot dataset format.
+        name="pi05_s0101_single_finetune",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_dim=32,  # Use 32D to match pre-trained model, pad S0101 data
+            action_horizon=50,
+        ),
+        data=LeRobotS0101SingleDataConfig(
+            repo_id="asgard-robot/s0101-test-v2.1",
+            base_config=DataConfig(
+                prompt_from_task=False,
+            ),
+            assets=AssetsConfig(asset_id="asgard-robot/s0101-test-v2.1"),
+            default_prompt="manipulate the object",
+        ),
+        # Load pre-trained π₀.₅ base model for fine-tuning
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        # Fine-tuning hyperparameters 
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=500,
+            peak_lr=3e-5,  # Lower learning rate for fine-tuning
+            decay_steps=10_000,
+            decay_lr=1e-6,
+        ),
+        num_train_steps=10_000,  # Fewer steps for small dataset
+        batch_size=16,  # Smaller batch size for single episode
+        log_interval=50,
+        save_interval=1000,
+        keep_period=2_000,
+        policy_metadata={"reset_pose": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]},
+    ),
+    TrainConfig(
+        # Fine-tuning config for S0101 RIGHT ARM tape pickup task using LeRobot dataset format.
+        # Dataset: asgard-robot/single-arm-right_arm_pick_up_tape (30 episodes, ~35K samples)
+        name="pi05_s0101_right_arm_tape_pickup_finetune",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_dim=32,  # Use 32D to match pre-trained model, pad S0101 data
+            action_horizon=12,  # Shorter horizon for precise tape pickup task
+            discrete_state_input=False,  # Use continuous state input
+        ),
+        data=LeRobotS0101RightArmTapePickupDataConfig(
+            repo_id="asgard-robot/single-arm-right_arm_pick_up_tape",
+            base_config=DataConfig(
+                prompt_from_task=True,  # Use dataset prompts instead of default
+            ),
+            assets=AssetsConfig(asset_id="asgard-robot/single-arm-right_arm_pick_up_tape"),
+            default_prompt="pick up the tape with the right arm",
+        ),
+        # Load pre-trained π₀.₅ base model for fine-tuning
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        # Fine-tuning hyperparameters for 2 epochs
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=300,  # ~15% of total steps (reasonable warmup)
+            peak_lr=5e-5,  # Higher peak learning rate for better convergence
+            decay_steps=2_204,  # Total training steps for 2 epochs with batch_size=32
+            decay_lr=5e-5,  # Keep flat (no decay) for stable fine-tuning
+        ),
+        num_train_steps=2_204,  # 2 epochs: 35,275 samples / 32 batch_size * 2 epochs
+        batch_size=32,  # Increased batch size now that GPU memory is free
+        num_workers=8,  # More workers for faster data loading
+        ema_decay=0.999,  # Higher EMA decay for smoother model updates
+        log_interval=50,
+        save_interval=500,
+        keep_period=1_000,
+        policy_metadata={"reset_pose": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]},  # S0101 right arm neutral pose
+    ),
+    #
+    # S0101 Dual Arms configs.
+    #
+    TrainConfig(
+        name="pi05_s0101_dual",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_dim=12,  # Dual S0101 has 12 DOF (6 per arm)
+            action_horizon=50,
+        ),
+        data=LeRobotS0101DualDataConfig(
+            assets=AssetsConfig(asset_id="s0101_dual"),
+            base_config=DataConfig(
+                prompt_from_task=True,
+            ),
+        ),
+        policy_metadata={"reset_pose": [0.0] * 12},  # Dual S0101 neutral pose
+    ),
+    TrainConfig(
+        # Fine-tuning config for dual S0101 robots using LeRobot dataset format.
+        name="pi05_s0101_dual_finetune",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_dim=12,  # Dual S0101 has 12 DOF
+            action_horizon=50,
+        ),
+        data=LeRobotS0101DualDataConfig(
+            base_config=DataConfig(
+                prompt_from_task=True,
+                # Replace with your dual arm dataset path
+                repo_id="/home/shadeform/workspace/data/S0101_Test_Format_finetuning_samples/test_format_with_calibration_2_converted",
+            ),
+            assets=AssetsConfig(asset_id="s0101_dual"),
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=500,
+            peak_lr=3e-5,
+            decay_steps=15_000,  # More steps for dual arm coordination
+            decay_lr=1e-6,
+        ),
+        num_train_steps=15_000,
+        batch_size=12,  # Adjust for dual arm complexity
+        log_interval=50,
+        save_interval=1500,
+        keep_period=3_000,
+        policy_metadata={"reset_pose": [0.0] * 12},
+    ),
+    #
+    # S0101 Dual Arms + Omni Base configs.
+    #
+    TrainConfig(
+        name="pi05_s0101_dual_omni",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_dim=15,  # Dual S0101 + Omni has 15 DOF (6 + 6 + 3)
+            action_horizon=50,
+        ),
+        data=LeRobotS0101DualOmniDataConfig(
+            assets=AssetsConfig(asset_id="s0101_dual_omni"),
+            base_config=DataConfig(
+                prompt_from_task=True,
+            ),
+        ),
+        policy_metadata={"reset_pose": [0.0] * 15},  # Mobile dual S0101 neutral pose
+    ),
+    TrainConfig(
+        # Fine-tuning config for dual S0101 + Omni base using LeRobot dataset format.
+        name="pi05_s0101_dual_omni_finetune",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_dim=15,  # Dual S0101 + Omni has 15 DOF
+            action_horizon=50,
+        ),
+        data=LeRobotS0101DualOmniDataConfig(
+            base_config=DataConfig(
+                prompt_from_task=True,
+                # Replace with your mobile dual arm dataset path
+                repo_id="/home/shadeform/workspace/data/S0101_Test_Format_finetuning_samples/test_format_with_calibration_1_converted",
+            ),
+            assets=AssetsConfig(asset_id="s0101_dual_omni"),
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1000,  # More warmup for complex mobile manipulation
+            peak_lr=2e-5,  # Even lower LR for mobile coordination
+            decay_steps=20_000,  # More steps for mobile + dual arm coordination
+            decay_lr=5e-7,
+        ),
+        num_train_steps=20_000,
+        batch_size=8,  # Smaller batch for mobile dual arm complexity
+        log_interval=50,
+        save_interval=2000,
+        keep_period=4_000,
+        policy_metadata={"reset_pose": [0.0] * 15},
     ),
     #
     # Inference DROID configs.

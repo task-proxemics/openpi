@@ -1,0 +1,31 @@
+# SO-101 + OpenPI π₀.₅ Requirements
+
+# Core OpenPI dependencies
+openpi @ git+https://github.com/physical-intelligence/openpi.git
+
+# LeRobot with Feetech support
+lerobot[feetech] @ git+https://github.com/huggingface/lerobot.git
+
+# Intel RealSense SDK
+pyrealsense2>=2.54.0
+
+# Computer Vision
+opencv-python>=4.8.0
+opencv-contrib-python>=4.8.0
+
+# Scientific Computing
+numpy>=1.24.0
+scipy>=1.10.0
+
+# Deep Learning
+torch>=2.0.0
+jax>=0.4.0
+flax>=0.8.0
+
+# Utilities
+tyro>=0.5.0
+rich>=13.0.0
+tqdm>=4.65.0
+
+# Hardware Communication
+pyserial>=3.5
